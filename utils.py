@@ -28,7 +28,11 @@ def parse_results(results, task_name):
                 generation = None
                 if sample.get("resps"):
                     generation = sample["resps"][0][0]
+                    if not isinstance(generation, str):
+                        generation = str(generation)
                 filtered = sample.get("filtered_resps", [None])[0]
+                if filtered is not None and not isinstance(filtered, str):
+                    filtered = str(filtered)
 
                 parsed_samples.append(
                     {
@@ -40,12 +44,17 @@ def parse_results(results, task_name):
                         or doc.get("query")
                         or doc.get("instruction")
                         or doc.get("task_id"),
-                        "target": doc.get("answer")
+                        "target": doc.get("best_answer")
+                        or doc.get("correct_answers")
+                        or doc.get("answer")
                         or doc.get("canonical_solution")
+                        or doc.get("code")
                         or doc.get("label")
                         or doc.get("target")
                         or doc.get("test")
-                        or doc.get("tests"),
+                        or doc.get("tests")
+                        or doc.get("mc1_targets")
+                        or doc.get("mc2_targets"),
                         "generation": generation.strip() if isinstance(generation, str) else generation,
                         "filtered": filtered,
                     }

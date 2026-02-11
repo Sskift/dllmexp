@@ -22,7 +22,8 @@ TASKS = {
     "humaneval": "humaneval",
     "mbpp": "mbpp",
     "gsm8k": "gsm8k",
-    "truthfulqa": "truthfulqa_mc2",
+    # Use generation config for TruthfulQA to avoid log-likelihood-only MC scoring on diffusion models
+    "truthfulqa": "truthfulqa",
 }
 
 
@@ -138,7 +139,7 @@ def get_model(args):
             device_map="cuda",
         )
         tokenizer = AutoTokenizer.from_pretrained(args.dream_ckpt, trust_remote_code=True)
-        return DreamEvalHarness(
+        harness = DreamEvalHarness(
             pretrained=dream,
             tokenizer=tokenizer,
             steps=cfg["steps"],
@@ -148,6 +149,8 @@ def get_model(args):
             max_new_tokens=cfg["max_new_tokens"],
             prompt_template=prompt_template,
         )
+        harness.is_code_task = task_name in {"humaneval", "mbpp"}
+        return harness
 
     if model_alias == "diffucoder":
         overrides = {
@@ -164,7 +167,7 @@ def get_model(args):
             trust_remote_code=True,
         ).to("cuda").eval()
         tokenizer = AutoTokenizer.from_pretrained(args.diffucoder_ckpt, trust_remote_code=True)
-        return DiffuCoderEvalHarness(
+        harness = DiffuCoderEvalHarness(
             pretrained=model,
             tokenizer=tokenizer,
             steps=cfg["steps"],
@@ -174,6 +177,8 @@ def get_model(args):
             max_new_tokens=cfg["max_new_tokens"],
             prompt_template=prompt_template,
         )
+        harness.is_code_task = task_name in {"humaneval", "mbpp"}
+        return harness
 
     if model_alias == "llada":
         overrides = {
@@ -192,7 +197,7 @@ def get_model(args):
             trust_remote_code=True,
         ).to("cuda").eval()
         tokenizer = AutoTokenizer.from_pretrained(args.llada_ckpt, trust_remote_code=True)
-        return LladaEvalHarness(
+        harness = LladaEvalHarness(
             pretrained=llada,
             tokenizer=tokenizer,
             alg=cfg["alg"],
@@ -204,6 +209,8 @@ def get_model(args):
             tokens_per_step=cfg.get("tokens_per_step", 1),
             prompt_template=prompt_template,
         )
+        harness.is_code_task = task_name in {"humaneval", "mbpp"}
+        return harness
 
     if model_alias == "llada1.5":
         overrides = {
@@ -222,7 +229,7 @@ def get_model(args):
             trust_remote_code=True,
         ).to("cuda").eval()
         tokenizer = AutoTokenizer.from_pretrained(args.llada15_ckpt, trust_remote_code=True)
-        return Llada15EvalHarness(
+        harness = Llada15EvalHarness(
             pretrained=llada,
             tokenizer=tokenizer,
             alg=cfg["alg"],
@@ -234,6 +241,8 @@ def get_model(args):
             tokens_per_step=cfg.get("tokens_per_step", 1),
             prompt_template=prompt_template,
         )
+        harness.is_code_task = task_name in {"humaneval", "mbpp"}
+        return harness
 
     raise ValueError(f"Unknown model alias: {model_alias}")
 

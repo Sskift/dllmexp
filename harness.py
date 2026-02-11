@@ -76,6 +76,7 @@ class LladaEvalHarness(_ProfilingHarness):
         self.temperature = temperature
         self.remasking = remasking
         self.tokens_per_step = tokens_per_step or 1
+        self.is_code_task = False  # set by caller if needed
 
     @property
     def max_gen_toks(self) -> int:
@@ -119,14 +120,15 @@ class LladaEvalHarness(_ProfilingHarness):
 
         end = time.time()
 
-        generated_tokens = 0
-        for token_id in outputs[0][context.shape[1]:]:
-            generated_tokens += 1
-            if token_id == self.tokenizer.eos_token_id:
-                break
+        sequences = outputs
+        if hasattr(outputs, "sequences"):
+            sequences = outputs.sequences
 
+        gen_slice = sequences[:, context.shape[1]:]
+        generated_tokens = gen_slice.shape[1]
         self._log_profile(generated_tokens, end - start)
-        return outputs
+
+        return gen_slice
 
 
 class Llada15EvalHarness(LladaEvalHarness):
@@ -155,6 +157,7 @@ class DreamEvalHarness(_ProfilingHarness):
         self.top_p = top_p
         self.alg = alg
         self.max_new_tokens = max_new_tokens
+        self.is_code_task = False
 
     @property
     def max_gen_toks(self) -> int:
@@ -179,9 +182,11 @@ class DreamEvalHarness(_ProfilingHarness):
         end = time.time()
 
         sequences = outputs.sequences if hasattr(outputs, "sequences") else outputs
-        generated_tokens = sequences.shape[1] - context.shape[1]
+        gen_slice = sequences[:, context.shape[1]:]
+        generated_tokens = gen_slice.shape[1]
         self._log_profile(generated_tokens, end - start)
-        return sequences
+
+        return gen_slice
 
 
 class DiffuCoderEvalHarness(_ProfilingHarness):
@@ -204,6 +209,7 @@ class DiffuCoderEvalHarness(_ProfilingHarness):
         self.top_p = top_p
         self.alg = alg
         self.max_new_tokens = max_new_tokens
+        self.is_code_task = False
 
     @property
     def max_gen_toks(self) -> int:
@@ -231,6 +237,8 @@ class DiffuCoderEvalHarness(_ProfilingHarness):
         end = time.time()
 
         sequences = outputs.sequences if hasattr(outputs, "sequences") else outputs
-        generated_tokens = sequences.shape[1] - context.shape[1]
+        gen_slice = sequences[:, context.shape[1]:]
+        generated_tokens = gen_slice.shape[1]
         self._log_profile(generated_tokens, end - start)
-        return sequences
+
+        return gen_slice
