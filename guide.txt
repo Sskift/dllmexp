@@ -1,0 +1,6 @@
+现在我需要在dllmexp这个仓库中实现：llada llada1.5 dream diffucoder这四个模型在humaneval mbpp gsm8k truthfulqa这4个benchmark上的实验
+1.代码在现有框架下拓展，其中这四个模型在mbpp humaneval上的实验代码可以借鉴dllm4code仓库中的实现规范和超参数设置
+2.在现有代码中删除其他模型和数据集的相关代码，如qwen等；删除其中所有关于apd的有关代码，只保留模型原始的解码方式，如low_confidence等
+3.你能看到每个实验都是由eval.py发起的，并且每个模型有自己的generate，在自己的同名文件夹下，你还需要在harness.py中实现对应的类
+4.完善utils.py的写入，实验结果保存在dllmexp/results文件夹下
+5.其余的agrument不需要特别处理

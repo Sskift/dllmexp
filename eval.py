@@ -3,211 +3,309 @@ os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 import argparse
 import json
 import logging
+from copy import deepcopy
+
 import torch
-from lm_eval import evaluator
-from harness import DreamEvalHarness, ProfileEvalHarness, LladaEvalHarness
-from utils import parse_results
 from transformers import AutoModel, AutoTokenizer
+from lm_eval import evaluator
+
+from harness import DiffuCoderEvalHarness, DreamEvalHarness, Llada15EvalHarness, LladaEvalHarness
+from utils import parse_results
 from dream.modeling_dream import DreamModel
 
-# Configure logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Apply custom task configurations
-from eval_config.monkey_patch import apply_custom_task_configs
-apply_custom_task_configs()
 
-# Define the tasks you want to support
-TASKS = {'gsm8k': 'gsm8k', 'math': 'hendrycks_math', 'gpqa': 'gpqa_main_generative_n_shot', 'humaneval': 'humaneval_instruct'} # Use the exact task names from lm-eval task registry
+TASKS = {
+    "humaneval": "humaneval",
+    "mbpp": "mbpp",
+    "gsm8k": "gsm8k",
+    "truthfulqa": "truthfulqa_mc2",
+}
+
+
+MODEL_DEFAULTS = {
+    "dream": {
+        "humaneval": {"steps": 2048, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 2048, "alg": "maskgit_plus"},
+        "mbpp": {"steps": 8, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
+        "default": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus"},
+    },
+    "diffucoder": {
+        "humaneval": {"steps": 2048, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 2048, "alg": "maskgit_plus"},
+        "mbpp": {"steps": 2048, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 1024, "alg": "maskgit_plus"},
+        "default": {"steps": 256, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
+    },
+    "llada": {
+        "humaneval": {"alg": "random", "num_steps": 512, "gen_length": 512, "block_length": 64, "temperature": 0.4, "remasking": "random", "tokens_per_step": 1},
+        "mbpp": {"alg": "low_confidence", "num_steps": 64, "gen_length": 256, "block_length": 64, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
+        "default": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.2, "remasking": "low_confidence", "tokens_per_step": 1},
+    },
+    "llada1.5": {
+        "humaneval": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "mbpp": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.3, "remasking": "low_confidence", "tokens_per_step": 1},
+        "default": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
+    },
+}
+
+
+ALLOWED_ALGS = {
+    "dream": {"maskgit_plus"},
+    "diffucoder": {"maskgit_plus"},
+    "llada": {"low_confidence", "random", "leftright"},
+    "llada1.5": {"low_confidence", "random", "leftright"},
+}
+
+
+def _template_llada(text: str) -> str:
+    return f"""
+<|startoftext|><|start_header_id|>user<|end_header_id|>
+
+You are an intelligent programming assistant to produce Python algorithmic solutions. Can you complete the following Python function?
+```python
+{text}
+```
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+```python
+{text}
+"""
+
+
+def _template_chat_code(text: str) -> str:
+    return f"""<|im_start|>system
+You are an intelligent programming assistant to produce Python algorithmic solutions<|im_end|>
+<|im_start|>user
+Can you complete the following Python function?{text}<|im_end|>
+<|im_start|>assistant
+```python
+{text}
+"""
+
+
+def _template_chat_code_mbpp(text: str) -> str:
+    return f"""<|im_start|>user
+You are an expert Python programmer, and here is your task: {text}
+<|im_end|>
+<|im_start|>assistant
+```python
+"""
+
+
+def get_prompt_template(model_alias: str, task_name: str):
+    if task_name in {"humaneval", "mbpp"}:
+        if model_alias.startswith("llada"):
+            return _template_llada
+        return _template_chat_code_mbpp if task_name == "mbpp" else _template_chat_code
+    return None
+
+
+def _merge_generation_config(model_alias: str, task: str, overrides: dict) -> dict:
+    defaults = MODEL_DEFAULTS[model_alias].get(task, MODEL_DEFAULTS[model_alias]["default"])
+    config = deepcopy(defaults)
+    for key, value in overrides.items():
+        if value is not None:
+            config[key] = value
+    return config
 
 
 def get_model(args):
-    
     model_alias = args.model_alias
-    alg = args.alg
-    # Canonical names only
-    tokens_per_step = args.tokens_per_step
-    max_lookahead = args.max_lookahead
-    kv_window = args.kv_window
-    apd_mixture_weight = args.apd_mixture_weight
-    num_steps = args.num_steps
     task_name = args.task
 
-    logger.info(f"Configuring model details for alias: {model_alias}")
+    logger.info(f"Loading model: {model_alias} for task: {task_name}")
 
-    if model_alias == "qwen7b":
-        if args.qwen_7b_ckpt is None:
-            raise ValueError("--qwen_7b_ckpt is required when --model_alias=qwen7b")
-        model = ProfileEvalHarness(pretrained=args.qwen_7b_ckpt, trust_remote_code=True, dtype=torch.bfloat16, attn_implementation="sdpa", device_map="cuda", max_length=16384)
-    elif model_alias == "qwen0.5b":
-        if args.qwen_small_ckpt is None:
-            raise ValueError("--qwen_small_ckpt is required when --model_alias=qwen0.5b")
-        model = ProfileEvalHarness(pretrained=args.qwen_small_ckpt, trust_remote_code=True, dtype=torch.bfloat16, attn_implementation="sdpa", device_map="cuda", max_length=16384)
-    elif model_alias == "dream":
-        if args.dream_ckpt is None:
-            raise ValueError("--dream_ckpt is required when --model_alias=dream")
-        if args.alg == "apd" and args.qwen_small_ckpt is None:
-            raise ValueError("--qwen_small_ckpt is required when --model_alias=dream and --alg=apd")
-        dream = DreamModel.from_pretrained(args.dream_ckpt, 
-                                               trust_remote_code=True,  
-                                               attn_implementation="sdpa", 
-                                               torch_dtype=torch.bfloat16, 
-                                               device_map="cuda")
+    allowed = ALLOWED_ALGS.get(model_alias)
+    if allowed is not None and args.alg is not None and args.alg not in allowed:
+        raise ValueError(f"Invalid alg '{args.alg}' for model '{model_alias}'. Allowed: {sorted(allowed)}")
+
+    prompt_template = get_prompt_template(model_alias, task_name)
+
+    if model_alias == "dream":
+        overrides = {
+            "steps": args.num_steps,
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "max_new_tokens": args.max_new_tokens,
+            "alg": args.alg,
+        }
+        cfg = _merge_generation_config("dream", task_name, overrides)
+        dream = DreamModel.from_pretrained(
+            args.dream_ckpt,
+            trust_remote_code=True,
+            attn_implementation="sdpa",
+            torch_dtype=torch.bfloat16,
+            device_map="cuda",
+        )
         tokenizer = AutoTokenizer.from_pretrained(args.dream_ckpt, trust_remote_code=True)
-        model = DreamEvalHarness(
+        return DreamEvalHarness(
             pretrained=dream,
             tokenizer=tokenizer,
-            alg=alg,
-            tokens_per_step=tokens_per_step,
-            max_lookahead=max_lookahead,
-            kv_window=kv_window,
-            apd_mixture_weight=apd_mixture_weight,
-            num_steps=num_steps,
-            max_gen_toks=512 if task_name=="math" else 256,
-            verifier_ckpt=args.qwen_small_ckpt,
+            steps=cfg["steps"],
+            temperature=cfg["temperature"],
+            top_p=cfg["top_p"],
+            alg=cfg["alg"],
+            max_new_tokens=cfg["max_new_tokens"],
+            prompt_template=prompt_template,
         )
-        
-    elif model_alias == "llada":
-        if args.llada_ckpt is None:
-            raise ValueError("--llada_ckpt is required when --model_alias=llada")
-        llada = AutoModel.from_pretrained(args.llada_ckpt, trust_remote_code=True, torch_dtype=torch.bfloat16).to("cuda").eval()
+
+    if model_alias == "diffucoder":
+        overrides = {
+            "steps": args.num_steps,
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "max_new_tokens": args.max_new_tokens,
+            "alg": args.alg,
+        }
+        cfg = _merge_generation_config("diffucoder", task_name, overrides)
+        model = AutoModel.from_pretrained(
+            args.diffucoder_ckpt,
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True,
+        ).to("cuda").eval()
+        tokenizer = AutoTokenizer.from_pretrained(args.diffucoder_ckpt, trust_remote_code=True)
+        return DiffuCoderEvalHarness(
+            pretrained=model,
+            tokenizer=tokenizer,
+            steps=cfg["steps"],
+            temperature=cfg["temperature"],
+            top_p=cfg["top_p"],
+            alg=cfg["alg"],
+            max_new_tokens=cfg["max_new_tokens"],
+            prompt_template=prompt_template,
+        )
+
+    if model_alias == "llada":
+        overrides = {
+            "num_steps": args.num_steps,
+            "gen_length": args.gen_length,
+            "block_length": args.block_length,
+            "temperature": args.temperature,
+            "remasking": args.remasking,
+            "tokens_per_step": args.tokens_per_step,
+            "alg": args.alg,
+        }
+        cfg = _merge_generation_config("llada", task_name, overrides)
+        llada = AutoModel.from_pretrained(
+            args.llada_ckpt,
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True,
+        ).to("cuda").eval()
         tokenizer = AutoTokenizer.from_pretrained(args.llada_ckpt, trust_remote_code=True)
-        model = LladaEvalHarness(pretrained=llada, tokenizer=tokenizer, alg=alg, tokens_per_step=tokens_per_step, num_steps=num_steps)
+        return LladaEvalHarness(
+            pretrained=llada,
+            tokenizer=tokenizer,
+            alg=cfg["alg"],
+            num_steps=cfg["num_steps"],
+            gen_length=cfg["gen_length"],
+            block_length=cfg["block_length"],
+            temperature=cfg["temperature"],
+            remasking=cfg["remasking"],
+            tokens_per_step=cfg.get("tokens_per_step", 1),
+            prompt_template=prompt_template,
+        )
 
-    else:
-        raise ValueError(f"Unknown model alias: {model_alias}. Must be one of 'qwen7b', 'qwen0.5b', 'dream'.")
+    if model_alias == "llada1.5":
+        overrides = {
+            "num_steps": args.num_steps,
+            "gen_length": args.gen_length,
+            "block_length": args.block_length,
+            "temperature": args.temperature,
+            "remasking": args.remasking,
+            "tokens_per_step": args.tokens_per_step,
+            "alg": args.alg,
+        }
+        cfg = _merge_generation_config("llada1.5", task_name, overrides)
+        llada = AutoModel.from_pretrained(
+            args.llada15_ckpt,
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True,
+        ).to("cuda").eval()
+        tokenizer = AutoTokenizer.from_pretrained(args.llada15_ckpt, trust_remote_code=True)
+        return Llada15EvalHarness(
+            pretrained=llada,
+            tokenizer=tokenizer,
+            alg=cfg["alg"],
+            num_steps=cfg["num_steps"],
+            gen_length=cfg["gen_length"],
+            block_length=cfg["block_length"],
+            temperature=cfg["temperature"],
+            remasking=cfg["remasking"],
+            tokens_per_step=cfg.get("tokens_per_step", 1),
+            prompt_template=prompt_template,
+        )
 
-    return model
+    raise ValueError(f"Unknown model alias: {model_alias}")
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate language models using EleutherAI Eval Harness.")
-    parser.add_argument(
-        "--model_alias",
-        required=True,
-        choices=["qwen7b", "qwen0.5b", "dream", "llada"],
-        help="Alias of the model to evaluate."
-    )
-    
-    parser.add_argument(
-        "--task",
-        required=True,
-        choices=["gsm8k", "math", "gpqa", "humaneval"],
-        help="Please choose one of the following tasks: gsm8k, math, gpqa, humaneval"
-    )
-    parser.add_argument(
-        "--output_dir", 
-        default="results",
-        help="Directory to save evaluation results json file."
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Limit the number of samples per task for quick testing (e.g., 10 or 0.1 for 10%%)."
-    )
-    parser.add_argument(
-        "--alg",
-        choices=["leftright", "low_confidence", "random", "origin", "entropy", "apd"]
-    )
-    parser.add_argument("--qwen_small_ckpt", type=str, default="Qwen/Qwen2.5-0.5B", help="Checkpoint or repo id for Qwen (used by qwen0.5b and as APD verifier)")
-    parser.add_argument("--qwen_7b_ckpt", type=str, default="Qwen/Qwen2.5-7B", help="Checkpoint or repo id for Qwen 7B (used by qwen7b)")
-    parser.add_argument("--dream_ckpt", type=str, default="Dream-org/Dream-v0-Instruct-7B", help="Checkpoint or repo id for Dream model")
-    parser.add_argument("--llada_ckpt", type=str, default="GSAI-ML/LLaDA-8B-Instruct", help="Checkpoint or repo id for LLaDA model")
-    parser.add_argument("--tokens_per_step", type=int, default=None, help="The number of tokens to generate per step K")
-    parser.add_argument("--kv_window", type=int, default=None, help="APD Parameter W")
-    parser.add_argument("--max_lookahead", type=int, default=None, help="APD Parameter M")
-    parser.add_argument("--apd_mixture_weight", type=float, default=None, help="APD Parameter R")
-    
-    parser.add_argument(
-        "--num_steps",
-        type=int,
-        default=None
-    )
-    
-    parser.add_argument(
-        "--tag",
-        type=str,
-        default="",
-    )
+    parser = argparse.ArgumentParser(description="Evaluate diffusion-based code models on common benchmarks.")
+    parser.add_argument("--model_alias", required=True, choices=["dream", "llada", "llada1.5", "diffucoder"], help="Model to evaluate")
+    parser.add_argument("--task", required=True, choices=["humaneval", "mbpp", "gsm8k", "truthfulqa"], help="Benchmark task")
+    parser.add_argument("--output_dir", default="results", help="Directory to save evaluation outputs")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of samples for quick tests")
+    parser.add_argument("--alg", type=str, default=None, help="Decoding algorithm override; must be in per-model whitelist")
+    parser.add_argument("--num_steps", type=int, default=None, help="Diffusion steps override")
+    parser.add_argument("--gen_length", type=int, default=None, help="Generation length for LLaDA-style decoding")
+    parser.add_argument("--block_length", type=int, default=None, help="Block length for LLaDA-style decoding")
+    parser.add_argument("--tokens_per_step", type=int, default=None, help="Tokens per step for left-right decoding")
+    parser.add_argument("--temperature", type=float, default=None, help="Sampling temperature override")
+    parser.add_argument("--top_p", type=float, default=None, help="Top-p override")
+    parser.add_argument("--max_new_tokens", type=int, default=None, help="Maximum generated tokens override")
+    parser.add_argument("--remasking", type=str, default=None, help="Remasking strategy for LLaDA diffusion decoding")
+    parser.add_argument("--dream_ckpt", type=str, default="Dream-org/Dream-v0-Instruct-7B", help="Dream checkpoint")
+    parser.add_argument("--llada_ckpt", type=str, default="GSAI-ML/LLaDA-8B-Instruct", help="LLaDA checkpoint")
+    parser.add_argument("--llada15_ckpt", type=str, default="GSAI-ML/LLaDA-1.5", help="LLaDA 1.5 checkpoint")
+    parser.add_argument("--diffucoder_ckpt", type=str, default="apple/DiffuCoder-7B-cpGRPO", help="DiffuCoder checkpoint")
+    parser.add_argument("--tag", type=str, default="", help="Optional tag appended to output filename")
 
     args = parser.parse_args()
-    
-    # Validate algorithm choices based on model alias
-    valid_algs = {
-        "llada": ["low_confidence", "leftright", "random"],
-        "dream": ["leftright", "apd", "entropy", "origin"],
-        "qwen7b": ["leftright", None],
-        "qwen0.5b": ["leftright", None]
-    }
-    
-    if args.model_alias in valid_algs:
-        if args.alg not in valid_algs[args.model_alias]:
-            valid_alg_str = ", ".join([str(alg) for alg in valid_algs[args.model_alias]])
-            raise ValueError(f"Invalid algorithm '{args.alg}' for model '{args.model_alias}'. "
-                           f"Valid algorithms for {args.model_alias}: {valid_alg_str}")
-    
-    model = get_model(args)
-    os.makedirs(args.output_dir, exist_ok=True)
-    
-    task_str = args.task
-    if args.alg is not None:
-        task_str += f"_{args.alg}"
-    # Label outputs with canonical flags only
-    if args.tokens_per_step is not None:
-        task_str += f"_K={args.tokens_per_step}"
-    if args.max_lookahead is not None:
-        task_str += f"_M={args.max_lookahead}"
-    if args.kv_window is not None:
-        task_str += f"_W={args.kv_window}"
-    if args.apd_mixture_weight is not None:
-        task_str += f"_R={args.apd_mixture_weight}"
-    if args.num_steps is not None:
-        task_str += f"_num_steps={args.num_steps}"
-    if args.tag:
-        task_str += f"_{args.tag}"
-    output_filename = f"{args.model_alias}_{task_str}_limit{args.limit}.json"
-    output_path = os.path.join(args.output_dir, output_filename)
-    logger.info(f"Results will be saved to: {output_path}")
-    
-    
-    task_name = args.task
-    
-    if task_name == "math":
-        system_instruction = "You are a helpful assistant. Justify your final answer by first explaining your step-by-step derivation or reasoning. Conclude by presenting the final answer in the format: boxed{ANSWER}."
-    elif task_name == "gpqa":
-        system_instruction = "You are a helpful assistant. Justify your final answer by first explaining your step-by-step derivation or reasoning. Conclude by presenting the final answer in the format: (LETTER)."
-    else:
-        system_instruction = "You are a helpful assistant."
-        
-    if "qwen" in args.model_alias:
-        system_instruction = "You are a helpful assistant." # Normal prompt for qwen models
 
-    task = [TASKS[task_name]]
-    
-    results = evaluator.simple_evaluate(
+    model = get_model(args)
+
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.join(repo_root, args.output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+
+    task_label = args.task
+    if args.alg:
+        task_label += f"_{args.alg}"
+    if args.num_steps is not None:
+        task_label += f"_steps={args.num_steps}"
+    if args.max_new_tokens is not None:
+        task_label += f"_gen={args.max_new_tokens}"
+    if args.tag:
+        task_label += f"_{args.tag}"
+
+    output_filename = f"{args.model_alias}_{task_label}_limit{args.limit}.json"
+    output_path = os.path.join(output_dir, output_filename)
+    logger.info(f"Results will be written to {output_path}")
+
+    if args.task in {"humaneval", "mbpp"}:
+        system_instruction = "You are an expert Python coding assistant. Write complete, executable solutions; reply with code blocks only unless the task explicitly asks for a short answer."
+    else:
+        system_instruction = "You are a careful reasoning assistant. Solve the problem step by step and give a concise final answer."
+    task_names = [TASKS[args.task]]
+
+    results = evaluator.simple_evaluate(  # type: ignore[name-defined]
         model=model,
-        tasks=task,
+        tasks=task_names,
         batch_size=1,
         limit=args.limit,
-        log_samples=True,    
-        write_out=True,    
-        num_fewshot=0, 
-        apply_chat_template=True,
+        log_samples=True,
+        write_out=True,
+        num_fewshot=0,
+        apply_chat_template=False,
         system_instruction=system_instruction,
-        gen_kwargs="max_length=16384" if "qwen" in args.model_alias else None,
-        confirm_run_unsafe_code=True
+        confirm_run_unsafe_code=True,
     )
 
     results["profile"] = model.get_profile()
-    
-    parsed_results = parse_results(results, task_name=task_name)
-    
-    with open(output_path, 'w') as f:
+    parsed_results = parse_results(results, task_name=args.task)
+
+    with open(output_path, "w") as f:
         json.dump(parsed_results, f, indent=4)
-    
+
 
 if __name__ == "__main__":
     main()
-    
-    
