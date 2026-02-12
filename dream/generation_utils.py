@@ -466,6 +466,7 @@ class DreamGenerationMixin:
         temperature = generation_config.temperature
         top_p = generation_config.top_p
         top_k = generation_config.top_k
+        tokens_per_step = generation_config.tokens_per_step
 
         histories = [] if (return_dict_in_generate and output_history) else None
 
@@ -510,7 +511,15 @@ class DreamGenerationMixin:
                 p_transfer = 1 - s / t if i < steps - 1 else 1
                 x0 = torch.zeros_like(x[mask_index], device=self.device, dtype=torch.long) + mask_token_id
                 transfer_index_t_s = torch.rand(*x0.shape, device=self.device) < p_transfer
-                _, x0[transfer_index_t_s]= sample_tokens(mask_logits[transfer_index_t_s], temperature=temperature, top_p=top_p, top_k=top_k)
+                if tokens_per_step is not None:
+                    flat = transfer_index_t_s.nonzero(as_tuple=False).view(-1)
+                    if flat.numel() > tokens_per_step:
+                        keep = flat[torch.randperm(flat.numel(), device=flat.device)[:tokens_per_step]]
+                        trimmed = torch.zeros_like(transfer_index_t_s, dtype=torch.bool)
+                        trimmed.view(-1)[keep] = True
+                        transfer_index_t_s = trimmed
+                if transfer_index_t_s.any():
+                    _, x0[transfer_index_t_s]= sample_tokens(mask_logits[transfer_index_t_s], temperature=temperature, top_p=top_p, top_k=top_k)
                 x[mask_index] = x0.clone()
             else:
                 if alg == 'maskgit_plus':
@@ -523,6 +532,8 @@ class DreamGenerationMixin:
                     raise RuntimeError(f"Unknown alg: {alg}")
                 num_mask_token = mask_index.sum()
                 number_transfer_tokens = int(num_mask_token * (1 - s / t)) if i < steps - 1 else num_mask_token
+                if tokens_per_step is not None:
+                    number_transfer_tokens = min(number_transfer_tokens, tokens_per_step)
                 if number_transfer_tokens > 0:
                     if alg_temp is None or alg_temp == 0:
                         _, transfer_index = torch.topk(confidence, number_transfer_tokens)

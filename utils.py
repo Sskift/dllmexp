@@ -1,10 +1,21 @@
 import numpy as np
+import re
 
 
 def _to_serializable(value):
     if isinstance(value, (np.generic,)):
         return value.item()
     return value
+
+
+def _extract_last_number(text: str):
+    # Extract the last numeric token (integer or decimal) from text
+    if not isinstance(text, str):
+        return None
+    # Drop currency symbols/commas for robustness
+    cleaned = text.replace(",", "")
+    matches = re.findall(r"-?\d+(?:\.\d+)?", cleaned)
+    return matches[-1] if matches else None
 
 
 def parse_results(results, task_name):
@@ -42,6 +53,12 @@ def parse_results(results, task_name):
                 filtered = sample.get("filtered_resps", [None])[0]
                 if filtered is not None and not isinstance(filtered, str):
                     filtered = str(filtered)
+
+                # Fallback numeric extraction for GSM8K when post-processor yields [invalid]
+                if task_name == "gsm8k" and (filtered in {None, "[invalid]", ""}):
+                    extracted = _extract_last_number(generation or "")
+                    if extracted is not None:
+                        filtered = extracted
 
                 parsed_samples.append(
                     {

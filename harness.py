@@ -205,6 +205,7 @@ class DreamEvalHarness(_ProfilingHarness):
         top_p: float,
         alg: str,
         max_new_tokens: int,
+        tokens_per_step: int | None = None,
         prompt_template=None,
     ) -> None:
         super().__init__(pretrained=pretrained, tokenizer=tokenizer, prompt_template=prompt_template)
@@ -214,6 +215,7 @@ class DreamEvalHarness(_ProfilingHarness):
         self.top_p = top_p
         self.alg = alg
         self.max_new_tokens = max_new_tokens
+        self.tokens_per_step = tokens_per_step
         self.is_code_task = False
 
     @property
@@ -235,6 +237,7 @@ class DreamEvalHarness(_ProfilingHarness):
             top_p=self.top_p,
             max_new_tokens=max_new_tokens,
             alg=self.alg,
+            tokens_per_step=self.tokens_per_step,
         )
         end = time.time()
 
@@ -288,6 +291,7 @@ class DiffuCoderEvalHarness(_ProfilingHarness):
         top_p: float,
         alg: str,
         max_new_tokens: int,
+        tokens_per_step: int | None = None,
         prompt_template=None,
     ) -> None:
         super().__init__(pretrained=pretrained, tokenizer=tokenizer, prompt_template=prompt_template)
@@ -297,6 +301,7 @@ class DiffuCoderEvalHarness(_ProfilingHarness):
         self.top_p = top_p
         self.alg = alg
         self.max_new_tokens = max_new_tokens
+        self.tokens_per_step = tokens_per_step
         self.is_code_task = False
 
     @property
@@ -319,6 +324,7 @@ class DiffuCoderEvalHarness(_ProfilingHarness):
             alg=self.alg,
             alg_temp=0.0,
             max_new_tokens=max_new_tokens,
+            tokens_per_step=self.tokens_per_step,
             output_history=False,
             return_dict_in_generate=True,
         )

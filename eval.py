@@ -29,28 +29,31 @@ TASKS = {
 
 MODEL_DEFAULTS = {
     "dream": {
-        "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus"},
-        "humaneval": {"steps": 128, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus"},
-        "mbpp": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
-        "default": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus"},
+        "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "humaneval": {"steps": 128, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "mbpp": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "gsm8k": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "default": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
     },
     "diffucoder": {
-        "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus"},
-        "humaneval": {"steps": 256, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus"},
-        "mbpp": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
-        "default": {"steps": 256, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
+        "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "humaneval": {"steps": 256, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "mbpp": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "gsm8k": {"steps": 256, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "default": {"steps": 256, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
     },
     "llada": {
         "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 32, "temperature": 0.2, "remasking": "low_confidence", "tokens_per_step": 1},
         "humaneval": {"alg": "random", "num_steps": 512, "gen_length": 512, "block_length": 64, "temperature": 0.4, "remasking": "random", "tokens_per_step": 1},
         "mbpp": {"alg": "low_confidence", "num_steps": 64, "gen_length": 256, "block_length": 64, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
+        "gsm8k": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.2, "remasking": "low_confidence", "tokens_per_step": 1},
         "default": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.2, "remasking": "low_confidence", "tokens_per_step": 1},
     },
     "llada1.5": {
         "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 16, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
         "humaneval": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
         "mbpp": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.3, "remasking": "low_confidence", "tokens_per_step": 1},
-        "default": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
+        "gsm8k": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
     },
 }
 
@@ -147,6 +150,7 @@ def get_model(args):
             "top_p": args.top_p,
             "max_new_tokens": args.max_new_tokens,
             "alg": args.alg,
+            "tokens_per_step": args.tokens_per_step,
         }
         cfg = _merge_generation_config("dream", task_name, overrides)
         dream = DreamModel.from_pretrained(
@@ -165,6 +169,7 @@ def get_model(args):
             top_p=cfg["top_p"],
             alg=cfg["alg"],
             max_new_tokens=cfg["max_new_tokens"],
+            tokens_per_step=cfg.get("tokens_per_step"),
             prompt_template=prompt_template,
         )
         harness.is_code_task = task_name in {"humaneval", "mbpp"}
@@ -177,6 +182,7 @@ def get_model(args):
             "top_p": args.top_p,
             "max_new_tokens": args.max_new_tokens,
             "alg": args.alg,
+            "tokens_per_step": args.tokens_per_step,
         }
         cfg = _merge_generation_config("diffucoder", task_name, overrides)
         model = AutoModel.from_pretrained(
@@ -197,6 +203,7 @@ def get_model(args):
             top_p=cfg["top_p"],
             alg=cfg["alg"],
             max_new_tokens=cfg["max_new_tokens"],
+            tokens_per_step=cfg.get("tokens_per_step"),
             prompt_template=prompt_template,
         )
         harness.is_code_task = task_name in {"humaneval", "mbpp"}
@@ -315,6 +322,8 @@ def main():
         task_label += f"_steps={args.num_steps}"
     if args.max_new_tokens is not None:
         task_label += f"_gen={args.max_new_tokens}"
+    if args.tokens_per_step is not None:
+        task_label += f"_tps={args.tokens_per_step}"
     if args.tag:
         task_label += f"_{args.tag}"
 
