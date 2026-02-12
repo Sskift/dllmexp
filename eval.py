@@ -29,21 +29,25 @@ TASKS = {
 
 MODEL_DEFAULTS = {
     "dream": {
+        "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus"},
         "humaneval": {"steps": 2048, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 2048, "alg": "maskgit_plus"},
         "mbpp": {"steps": 8, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
         "default": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus"},
     },
     "diffucoder": {
+        "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus"},
         "humaneval": {"steps": 2048, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 2048, "alg": "maskgit_plus"},
         "mbpp": {"steps": 2048, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 1024, "alg": "maskgit_plus"},
         "default": {"steps": 256, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
     },
     "llada": {
+        "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 32, "temperature": 0.2, "remasking": "low_confidence", "tokens_per_step": 1},
         "humaneval": {"alg": "random", "num_steps": 512, "gen_length": 512, "block_length": 64, "temperature": 0.4, "remasking": "random", "tokens_per_step": 1},
         "mbpp": {"alg": "low_confidence", "num_steps": 64, "gen_length": 256, "block_length": 64, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
         "default": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.2, "remasking": "low_confidence", "tokens_per_step": 1},
     },
     "llada1.5": {
+        "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 16, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
         "humaneval": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
         "mbpp": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.3, "remasking": "low_confidence", "tokens_per_step": 1},
         "default": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
@@ -61,35 +65,45 @@ ALLOWED_ALGS = {
 
 def _template_llada(text: str) -> str:
     return f"""
-<|startoftext|><|start_header_id|>user<|end_header_id|>
+    <|startoftext|><|start_header_id|>user<|end_header_id|>
 
-You are an intelligent programming assistant to produce Python algorithmic solutions. Can you complete the following Python function?
-```python
-{text}
-```
-<|eot_id|><|start_header_id|>assistant<|end_header_id|>
-```python
-{text}
-"""
+    You are an intelligent programming assistant to produce Python algorithmic solutions. Can you complete the following Python function?
+    ```python
+    {text}
+    ```
+    <|eot_id|><|start_header_id|>assistant<|end_header_id|>
+    ```python
+    {text}
+    """
 
 
 def _template_chat_code(text: str) -> str:
     return f"""<|im_start|>system
-You are an intelligent programming assistant to produce Python algorithmic solutions<|im_end|>
-<|im_start|>user
-Can you complete the following Python function?{text}<|im_end|>
-<|im_start|>assistant
-```python
-{text}
-"""
+    You are an intelligent programming assistant to produce Python algorithmic solutions<|im_end|>
+    <|im_start|>user
+    Can you complete the following Python function?{text}<|im_end|>
+    <|im_start|>assistant
+    ```python
+    {text}
+    """
 
 
 def _template_chat_code_mbpp(text: str) -> str:
     return f"""<|im_start|>user
-You are an expert Python programmer, and here is your task: {text}
+    You are an expert Python programmer, and here is your task: {text}
+    <|im_end|>
+    <|im_start|>assistant
+    ```python
+    """
+
+
+def _template_chat_reasoning(text: str) -> str:
+    return f"""<|im_start|>system
+You are a careful reasoning assistant. Answer the question briefly and factually.<|im_end|>
+<|im_start|>user
+{text}
 <|im_end|>
 <|im_start|>assistant
-```python
 """
 
 
@@ -98,6 +112,8 @@ def get_prompt_template(model_alias: str, task_name: str):
         if model_alias.startswith("llada"):
             return _template_llada
         return _template_chat_code_mbpp if task_name == "mbpp" else _template_chat_code
+    if task_name in {"truthfulqa", "gsm8k"}:
+        return _template_chat_reasoning
     return None
 
 
@@ -122,6 +138,8 @@ def get_model(args):
 
     prompt_template = get_prompt_template(model_alias, task_name)
 
+    torch_dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
+
     if model_alias == "dream":
         overrides = {
             "steps": args.num_steps,
@@ -135,8 +153,8 @@ def get_model(args):
             args.dream_ckpt,
             trust_remote_code=True,
             attn_implementation="sdpa",
-            torch_dtype=torch.bfloat16,
-            device_map="cuda",
+            torch_dtype=torch_dtype,
+            device_map=("auto" if args.device == "auto" else (args.device if args.device == "cpu" else "cuda")),
         )
         tokenizer = AutoTokenizer.from_pretrained(args.dream_ckpt, trust_remote_code=True)
         harness = DreamEvalHarness(
@@ -163,9 +181,13 @@ def get_model(args):
         cfg = _merge_generation_config("diffucoder", task_name, overrides)
         model = AutoModel.from_pretrained(
             args.diffucoder_ckpt,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=torch_dtype,
             trust_remote_code=True,
-        ).to("cuda").eval()
+            device_map="auto" if args.device == "auto" else None,
+        )
+        if args.device != "auto":
+            model = model.to(args.device)
+        model = model.eval()
         tokenizer = AutoTokenizer.from_pretrained(args.diffucoder_ckpt, trust_remote_code=True)
         harness = DiffuCoderEvalHarness(
             pretrained=model,
@@ -193,9 +215,13 @@ def get_model(args):
         cfg = _merge_generation_config("llada", task_name, overrides)
         llada = AutoModel.from_pretrained(
             args.llada_ckpt,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=torch_dtype,
             trust_remote_code=True,
-        ).to("cuda").eval()
+            device_map="auto" if args.device == "auto" else None,
+        )
+        if args.device != "auto":
+            llada = llada.to(args.device)
+        llada = llada.eval()
         tokenizer = AutoTokenizer.from_pretrained(args.llada_ckpt, trust_remote_code=True)
         harness = LladaEvalHarness(
             pretrained=llada,
@@ -225,9 +251,13 @@ def get_model(args):
         cfg = _merge_generation_config("llada1.5", task_name, overrides)
         llada = AutoModel.from_pretrained(
             args.llada15_ckpt,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=torch_dtype,
             trust_remote_code=True,
-        ).to("cuda").eval()
+            device_map="auto" if args.device == "auto" else None,
+        )
+        if args.device != "auto":
+            llada = llada.to(args.device)
+        llada = llada.eval()
         tokenizer = AutoTokenizer.from_pretrained(args.llada15_ckpt, trust_remote_code=True)
         harness = Llada15EvalHarness(
             pretrained=llada,
@@ -267,6 +297,8 @@ def main():
     parser.add_argument("--llada15_ckpt", type=str, default="GSAI-ML/LLaDA-1.5", help="LLaDA 1.5 checkpoint")
     parser.add_argument("--diffucoder_ckpt", type=str, default="apple/DiffuCoder-7B-cpGRPO", help="DiffuCoder checkpoint")
     parser.add_argument("--tag", type=str, default="", help="Optional tag appended to output filename")
+    parser.add_argument("--dtype", type=str, default="bfloat16", choices=["bfloat16", "float16"], help="Torch dtype for model weights")
+    parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu", "auto"], help="Device to place model on (use auto for hf accelerate device_map)")
 
     args = parser.parse_args()
 
@@ -294,7 +326,12 @@ def main():
         system_instruction = "You are an expert Python coding assistant. Write complete, executable solutions; reply with code blocks only unless the task explicitly asks for a short answer."
     else:
         system_instruction = "You are a careful reasoning assistant. Solve the problem step by step and give a concise final answer."
-    task_names = [TASKS[args.task]]
+    if args.task == "truthfulqa" and getattr(model, "model_alias", None) in {"dream", "diffucoder", "llada", "llada1.5"}:
+        # Avoid loglikelihood-based MC scoring on diffusion models; use generation-only variant instead
+        task_names = ["truthfulqa_gen"]
+        logger.info("Using truthfulqa_gen only for diffusion-style model to rely on generation scoring.")
+    else:
+        task_names = [TASKS[args.task]]
 
     results = evaluator.simple_evaluate(  # type: ignore[name-defined]
         model=model,

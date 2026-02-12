@@ -8,6 +8,10 @@ def _to_serializable(value):
 
 
 def parse_results(results, task_name):
+    metric_filter = {
+        "truthfulqa_gen": {"bleu_max,none", "rouge1_max,none", "rouge2_max,none", "rougeL_max,none"},
+    }
+
     output_data = {
         "metrics": {},
         "profile": results.get("profile", {}),
@@ -16,7 +20,12 @@ def parse_results(results, task_name):
 
     if "results" in results:
         for task, task_results in results["results"].items():
-            output_data["metrics"][task] = {metric: _to_serializable(value) for metric, value in task_results.items()}
+            keep = metric_filter.get(task)
+            filtered = {}
+            for metric, value in task_results.items():
+                if keep is None or metric in keep:
+                    filtered[metric] = _to_serializable(value)
+            output_data["metrics"][task] = filtered
 
     if "samples" in results:
         for task, sample_list in results["samples"].items():

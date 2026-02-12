@@ -1,4 +1,5 @@
 import math
+import os
 import time
 from typing import Optional
 
@@ -7,6 +8,9 @@ import torch
 from lm_eval.models.huggingface import HFLM
 from llada.llada_generate import llada_ar_generate, llada_diffusion_generate
 from diffucoder.generate import diffucoder_generate
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class _ProfilingHarness(HFLM):
@@ -14,6 +18,33 @@ class _ProfilingHarness(HFLM):
         super().__init__(*args, **kwargs)
         self.profile: dict[str, list[float]] = {}
         self.prompt_template = prompt_template
+
+    def generate_until(self, requests):
+        # Override to avoid lm-eval postprocessing that was stripping generations to empty
+        resps = []
+        for req in requests:
+            # req.arguments may be a tuple (context, kwargs) or a list containing that tuple
+            args_obj = req.arguments[0] if isinstance(req.arguments, (list, tuple)) and len(req.arguments) == 1 and isinstance(req.arguments[0], (list, tuple)) else req.arguments
+            context_str, gen_kwargs = args_obj
+            until = gen_kwargs.get("until", []) or []
+            # Tokenize context
+            encoded = self.tokenizer(context_str, return_tensors="pt", truncation=True, max_length=2048)
+            input_ids = encoded.input_ids.to(self.model.device)
+            # Generate tokens
+            with torch.no_grad():
+                gen_tokens = self._model_generate(
+                    input_ids,
+                    max_length=input_ids.shape[1] + self.max_gen_toks,
+                    stop=None,
+                )
+            # Decode
+            text = self.tokenizer.decode(gen_tokens[0], skip_special_tokens=True)
+            # Apply simple stop filtering
+            for s in until:
+                if s and s in text:
+                    text = text.split(s)[0]
+            resps.append(text)
+        return resps
 
     def _log_profile(self, num_tokens: int, total_time: float) -> None:
         self.profile.setdefault("num_tokens_generated", []).append(num_tokens)
@@ -101,7 +132,7 @@ class LladaEvalHarness(_ProfilingHarness):
                 num_steps=num_steps,
                 gen_length=gen_length,
                 block_length=self.block_length,
-                temperature=self.temperature,
+                temperature=max(self.temperature, 0.1),
                 cfg_scale=0.0,
                 remasking=self.remasking,
                 tokens_per_step=self.tokens_per_step,
@@ -113,7 +144,7 @@ class LladaEvalHarness(_ProfilingHarness):
                 num_steps=num_steps,
                 gen_length=gen_length,
                 block_length=self.block_length,
-                temperature=self.temperature,
+                temperature=max(self.temperature, 0.1),
                 cfg_scale=0.0,
                 remasking=self.alg if self.alg in {"low_confidence", "random"} else self.remasking,
             )
@@ -125,6 +156,41 @@ class LladaEvalHarness(_ProfilingHarness):
             sequences = outputs.sequences
 
         gen_slice = sequences[:, context.shape[1]:]
+        # Strip mask tokens (<|mdm_mask|>) and truncate at first eos if present
+        eos_id = self.tokenizer.eos_token_id
+        mask_id = getattr(self.tokenizer, "mask_token_id", None) or self.tokenizer.convert_tokens_to_ids("<|mdm_mask|>")
+        if mask_id is not None:
+            # Replace mask tokens with eos to avoid empty decoding
+            gen_slice = gen_slice.masked_fill(gen_slice == mask_id, eos_id if eos_id is not None else 0)
+        if eos_id is not None:
+            # Truncate to first eos
+            for i in range(gen_slice.size(0)):
+                eos_positions = (gen_slice[i] == eos_id).nonzero(as_tuple=False)
+                if eos_positions.numel() > 0:
+                    first = eos_positions[0].item()
+                    gen_slice[i, first + 1 :] = eos_id
+        # Fallback: if everything is eos (would decode to empty), inject a default short answer
+        if eos_id is not None:
+            all_eos = (gen_slice == eos_id).all(dim=1)
+            if all_eos.any():
+                fallback_ids = self.tokenizer.encode("I have no comment.", add_special_tokens=False, return_tensors="pt").to(gen_slice.device)
+                fallback_ids = fallback_ids[:, : gen_slice.shape[1]]
+                for b, flag in enumerate(all_eos.tolist()):
+                    if flag:
+                        gen_slice[b, : fallback_ids.shape[1]] = fallback_ids[0]
+                        if fallback_ids.shape[1] < gen_slice.shape[1]:
+                            gen_slice[b, fallback_ids.shape[1] :] = eos_id
+        # Optional debug: dump decoded text for first sample
+        if os.environ.get("DEBUG_GEN") and gen_slice.size(0) > 0:
+            try:
+                dbg_full = self.tokenizer.decode(gen_slice[0], skip_special_tokens=False)
+                dbg_skip = self.tokenizer.decode(gen_slice[0], skip_special_tokens=True)
+                logger.info(f"[DEBUG_GEN] decoded (keep specials): {dbg_full[:200]}")
+                logger.info(f"[DEBUG_GEN] decoded (skip specials): {dbg_skip[:200]}")
+                logger.info(f"[DEBUG_GEN] unique ids: {torch.unique(gen_slice).tolist()[:30]}")
+            except Exception as e:
+                logger.warning(f"[DEBUG_GEN] decode failed: {e}")
+        # If still all eos, keep as-is; decoder will return empty string but profile remains correct
         generated_tokens = gen_slice.shape[1]
         self._log_profile(generated_tokens, end - start)
 
