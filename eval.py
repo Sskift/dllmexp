@@ -29,31 +29,31 @@ TASKS = {
 
 MODEL_DEFAULTS = {
     "dream": {
-        "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "truthfulqa": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
         "humaneval": {"steps": 128, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
         "mbpp": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "gsm8k": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "default": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "gsm8k": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "default": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
     },
     "diffucoder": {
-        "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "truthfulqa": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
         "humaneval": {"steps": 256, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
         "mbpp": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "gsm8k": {"steps": 256, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "default": {"steps": 256, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "gsm8k": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "default": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
     },
     "llada": {
-        "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 32, "temperature": 0.2, "remasking": "low_confidence", "tokens_per_step": 1},
-        "humaneval": {"alg": "random", "num_steps": 512, "gen_length": 512, "block_length": 64, "temperature": 0.4, "remasking": "random", "tokens_per_step": 1},
-        "mbpp": {"alg": "low_confidence", "num_steps": 64, "gen_length": 256, "block_length": 64, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
-        "gsm8k": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.2, "remasking": "low_confidence", "tokens_per_step": 1},
-        "default": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.2, "remasking": "low_confidence", "tokens_per_step": 1},
+        "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "humaneval": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 64, "temperature": 0.0, "remasking": "random", "tokens_per_step": 1},
+        "mbpp": {"alg": "low_confidence", "num_steps": 128, "gen_length": 256, "block_length": 64, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "gsm8k": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "default": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
     },
     "llada1.5": {
-        "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 16, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
+        "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
         "humaneval": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
-        "mbpp": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.3, "remasking": "low_confidence", "tokens_per_step": 1},
-        "gsm8k": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.1, "remasking": "low_confidence", "tokens_per_step": 1},
+        "mbpp": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "gsm8k": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
     },
 }
 
