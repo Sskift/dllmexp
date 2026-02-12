@@ -147,7 +147,6 @@ def llada_ar_generate(model, prompt, num_steps=128, gen_length=128, block_length
 
         mask = mask_index.clone()
         cumsum_mask = torch.cumsum(mask, dim=1)
-        # print("C", cumsum_mask)
         transfer_index = torch.logical_and(cumsum_mask >= 1, cumsum_mask <= tokens_per_step) # Gets first tokens_per_step
         
         x[transfer_index] = x0[transfer_index]

@@ -30,14 +30,14 @@ TASKS = {
 MODEL_DEFAULTS = {
     "dream": {
         "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus"},
-        "humaneval": {"steps": 2048, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 2048, "alg": "maskgit_plus"},
-        "mbpp": {"steps": 8, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
+        "humaneval": {"steps": 128, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus"},
+        "mbpp": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
         "default": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus"},
     },
     "diffucoder": {
         "truthfulqa": {"steps": 128, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus"},
-        "humaneval": {"steps": 2048, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 2048, "alg": "maskgit_plus"},
-        "mbpp": {"steps": 2048, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 1024, "alg": "maskgit_plus"},
+        "humaneval": {"steps": 256, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus"},
+        "mbpp": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
         "default": {"steps": 256, "temperature": 0.2, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus"},
     },
     "llada": {

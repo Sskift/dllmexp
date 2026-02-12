@@ -181,15 +181,6 @@ class LladaEvalHarness(_ProfilingHarness):
                         if fallback_ids.shape[1] < gen_slice.shape[1]:
                             gen_slice[b, fallback_ids.shape[1] :] = eos_id
         # Optional debug: dump decoded text for first sample
-        if os.environ.get("DEBUG_GEN") and gen_slice.size(0) > 0:
-            try:
-                dbg_full = self.tokenizer.decode(gen_slice[0], skip_special_tokens=False)
-                dbg_skip = self.tokenizer.decode(gen_slice[0], skip_special_tokens=True)
-                logger.info(f"[DEBUG_GEN] decoded (keep specials): {dbg_full[:200]}")
-                logger.info(f"[DEBUG_GEN] decoded (skip specials): {dbg_skip[:200]}")
-                logger.info(f"[DEBUG_GEN] unique ids: {torch.unique(gen_slice).tolist()[:30]}")
-            except Exception as e:
-                logger.warning(f"[DEBUG_GEN] decode failed: {e}")
         # If still all eos, keep as-is; decoder will return empty string but profile remains correct
         generated_tokens = gen_slice.shape[1]
         self._log_profile(generated_tokens, end - start)
@@ -249,6 +240,37 @@ class DreamEvalHarness(_ProfilingHarness):
 
         sequences = outputs.sequences if hasattr(outputs, "sequences") else outputs
         gen_slice = sequences[:, context.shape[1]:]
+
+        # Clean diffusion output: strip masks, truncate at eos, and fallback if empty
+        eos_id = self.tokenizer.eos_token_id
+        mask_id = getattr(self.tokenizer, "mask_token_id", None)
+        if mask_id is None:
+            try:
+                mask_id = self.tokenizer.convert_tokens_to_ids("<|mask|>")
+            except Exception:
+                mask_id = None
+
+        if mask_id is not None:
+            gen_slice = gen_slice.masked_fill(gen_slice == mask_id, eos_id if eos_id is not None else pad_token_id)
+
+        if eos_id is not None:
+            for i in range(gen_slice.size(0)):
+                eos_positions = (gen_slice[i] == eos_id).nonzero(as_tuple=False)
+                if eos_positions.numel() > 0:
+                    first = eos_positions[0].item()
+                    gen_slice[i, first + 1 :] = eos_id
+
+        if eos_id is not None:
+            all_eos = (gen_slice == eos_id).all(dim=1)
+            if all_eos.any():
+                fallback_ids = self.tokenizer.encode("pass", add_special_tokens=False, return_tensors="pt").to(gen_slice.device)
+                fallback_ids = fallback_ids[:, : gen_slice.shape[1]]
+                for b, flag in enumerate(all_eos.tolist()):
+                    if flag:
+                        gen_slice[b, : fallback_ids.shape[1]] = fallback_ids[0]
+                        if fallback_ids.shape[1] < gen_slice.shape[1]:
+                            gen_slice[b, fallback_ids.shape[1] :] = eos_id
+
         generated_tokens = gen_slice.shape[1]
         self._log_profile(generated_tokens, end - start)
 
@@ -304,6 +326,37 @@ class DiffuCoderEvalHarness(_ProfilingHarness):
 
         sequences = outputs.sequences if hasattr(outputs, "sequences") else outputs
         gen_slice = sequences[:, context.shape[1]:]
+
+        # Clean diffusion output: strip mask tokens, truncate at eos, and fallback if empty
+        eos_id = self.tokenizer.eos_token_id
+        mask_id = getattr(self.tokenizer, "mask_token_id", None)
+        if mask_id is None:
+            try:
+                mask_id = self.tokenizer.convert_tokens_to_ids("<|mask|>")
+            except Exception:
+                mask_id = None
+
+        if mask_id is not None:
+            gen_slice = gen_slice.masked_fill(gen_slice == mask_id, eos_id if eos_id is not None else pad_token_id)
+
+        if eos_id is not None:
+            for i in range(gen_slice.size(0)):
+                eos_positions = (gen_slice[i] == eos_id).nonzero(as_tuple=False)
+                if eos_positions.numel() > 0:
+                    first = eos_positions[0].item()
+                    gen_slice[i, first + 1 :] = eos_id
+
+        if eos_id is not None:
+            all_eos = (gen_slice == eos_id).all(dim=1)
+            if all_eos.any():
+                fallback_ids = self.tokenizer.encode("pass", add_special_tokens=False, return_tensors="pt").to(gen_slice.device)
+                fallback_ids = fallback_ids[:, : gen_slice.shape[1]]
+                for b, flag in enumerate(all_eos.tolist()):
+                    if flag:
+                        gen_slice[b, : fallback_ids.shape[1]] = fallback_ids[0]
+                        if fallback_ids.shape[1] < gen_slice.shape[1]:
+                            gen_slice[b, fallback_ids.shape[1] :] = eos_id
+
         generated_tokens = gen_slice.shape[1]
         self._log_profile(generated_tokens, end - start)
 

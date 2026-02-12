@@ -13,7 +13,7 @@ LIMIT=2
 # python eval.py --model_alias llada1.5 --task humaneval --alg low_confidence --limit $LIMIT
 # python eval.py --model_alias llada1.5 --task mbpp --alg low_confidence --limit $LIMIT# 
 # python eval.py --model_alias llada1.5 --task gsm8k --alg low_confidence --limit $LIMIT
-python eval.py --model_alias llada1.5 --task truthfulqa --alg low_confidence --limit $LIMIT
+# python eval.py --model_alias llada1.5 --task truthfulqa --alg low_confidence --limit $LIMIT
 
 # python eval.py --model_alias dream --task humaneval --alg maskgit_plus --limit $LIMIT
 # python eval.py --model_alias dream --task mbpp --alg maskgit_plus --limit $LIMIT
@@ -23,4 +23,4 @@ python eval.py --model_alias llada1.5 --task truthfulqa --alg low_confidence --l
 # python eval.py --model_alias diffucoder --task humaneval --alg maskgit_plus --limit $LIMIT
 # python eval.py --model_alias diffucoder --task mbpp --alg maskgit_plus --limit $LIMIT
 # python eval.py --model_alias diffucoder --task gsm8k --alg maskgit_plus --limit $LIMIT
-# python eval.py --model_alias diffucoder --task truthfulqa --alg maskgit_plus --limit $LIMIT
+python eval.py --model_alias diffucoder --task truthfulqa --alg maskgit_plus --limit $LIMIT

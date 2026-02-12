@@ -493,6 +493,9 @@ class DreamGenerationMixin:
         x = generation_tokens_hook_func(None, x, None)
         for i in range(steps):
             mask_index = (x == mask_token_id)
+            if not mask_index.any():
+                # All positions are filled; further diffusion steps would be wasted compute
+                break
             logits = self(x, attention_mask, tok_idx).logits
             logits = torch.cat([logits[:,:1], logits[:, :-1]], dim=1)
 
