@@ -31,8 +31,8 @@ run_internal_waitable() {
     fi
     conda activate contrastive || echo "Warning: Conda env 'contrastive' activation failed or not found."
     
-    export HF_HOME=/data/zhangyt/contrastive/hf_cache
-    export HF_DATASETS_CACHE=/data/zhangyt/contrastive/hf_cache
+    export HF_HOME=xxx
+    export HF_DATASETS_CACHE=xxx
     # Use HOME instead of hardcoded user path where possible
     export LD_LIBRARY_PATH=${HOME}/miniconda3/envs/contrastive/lib:${LD_LIBRARY_PATH:-}
     cd "$REPO_ROOT" || exit 1
