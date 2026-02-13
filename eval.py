@@ -29,18 +29,18 @@ TASKS = {
 
 MODEL_DEFAULTS = {
     "dream": {
-        "truthfulqa": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "humaneval": {"steps": 128, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "mbpp": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "gsm8k": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "default": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "truthfulqa": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "humaneval": {"steps": 512, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "mbpp": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "gsm8k": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "default": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
     },
     "diffucoder": {
-        "truthfulqa": {"steps": 128, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "humaneval": {"steps": 256, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "mbpp": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "gsm8k": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "default": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "truthfulqa": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "humaneval": {"steps": 512, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "mbpp": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "gsm8k": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "default": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
     },
     "llada": {
         "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
@@ -54,6 +54,7 @@ MODEL_DEFAULTS = {
         "humaneval": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
         "mbpp": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
         "gsm8k": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "default": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
     },
 }
 
@@ -114,6 +115,9 @@ def get_prompt_template(model_alias: str, task_name: str):
     if task_name in {"humaneval", "mbpp"}:
         if model_alias.startswith("llada"):
             return _template_llada
+        if model_alias == "dream" and task_name == "humaneval":
+             # For Dream on HumanEval, avoid pre-filling the signature to prevent early stopping
+             return _template_chat_code_mbpp
         return _template_chat_code_mbpp if task_name == "mbpp" else _template_chat_code
     if task_name in {"truthfulqa", "gsm8k"}:
         return _template_chat_reasoning
@@ -330,6 +334,14 @@ def main():
     output_filename = f"{args.model_alias}_{task_label}_limit{args.limit}.json"
     output_path = os.path.join(output_dir, output_filename)
     logger.info(f"Results will be written to {output_path}")
+
+    # Setup job-level cache to resume partial progress
+    cache_dir = os.path.join(output_dir, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, f"{output_filename}.jsonl")
+    if hasattr(model, "load_cache"):
+        logger.info(f"Using generation cache: {cache_path}")
+        model.load_cache(cache_path)
 
     if args.task in {"humaneval", "mbpp"}:
         system_instruction = "You are an expert Python coding assistant. Write complete, executable solutions; reply with code blocks only unless the task explicitly asks for a short answer."

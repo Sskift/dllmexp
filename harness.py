@@ -1,6 +1,7 @@
 import math
 import os
 import time
+import json
 from typing import Optional
 
 import numpy as np
@@ -18,6 +19,26 @@ class _ProfilingHarness(HFLM):
         super().__init__(*args, **kwargs)
         self.profile: dict[str, list[float]] = {}
         self.prompt_template = prompt_template
+        self.cache_path = None
+        self.cache_data = None
+
+    def load_cache(self, cache_path: str):
+        self.cache_path = cache_path
+        self.cache_data = {}
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line: continue
+                        try:
+                            entry = json.loads(line)
+                            if "prompt" in entry and "response" in entry:
+                                self.cache_data[entry["prompt"]] = entry["response"]
+                        except json.JSONDecodeError:
+                            continue
+            except Exception as e:
+                logger.warning(f"Failed to load cache from {cache_path}: {e}")
 
     def generate_until(self, requests):
         # Override to avoid lm-eval postprocessing that was stripping generations to empty
@@ -26,6 +47,12 @@ class _ProfilingHarness(HFLM):
             # req.arguments may be a tuple (context, kwargs) or a list containing that tuple
             args_obj = req.arguments[0] if isinstance(req.arguments, (list, tuple)) and len(req.arguments) == 1 and isinstance(req.arguments[0], (list, tuple)) else req.arguments
             context_str, gen_kwargs = args_obj
+            
+            # Check cache
+            if self.cache_data is not None and context_str in self.cache_data:
+                resps.append(self.cache_data[context_str])
+                continue
+
             until = gen_kwargs.get("until", []) or []
             # Tokenize context
             encoded = self.tokenizer(context_str, return_tensors="pt", truncation=True, max_length=2048)
@@ -43,6 +70,17 @@ class _ProfilingHarness(HFLM):
             for s in until:
                 if s and s in text:
                     text = text.split(s)[0]
+
+            # Write to cache
+            if self.cache_path:
+                try:
+                    with open(self.cache_path, "a") as f:
+                        f.write(json.dumps({"prompt": context_str, "response": text}) + "\n")
+                    if self.cache_data is not None:
+                        self.cache_data[context_str] = text
+                except Exception as e:
+                    logger.warning(f"Failed to write to cache: {e}")
+
             resps.append(text)
         return resps
 

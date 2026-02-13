@@ -7,10 +7,10 @@
         }
     },
     "profile": {
-        "throughput_mean": 57.07956326023593,
-        "throughput_stderr": 2.0443652173531923,
-        "total_time_mean": 8.472741484642029,
-        "total_time_stderr": 0.3034602403640747,
+        "throughput_mean": 14.637934715322894,
+        "throughput_stderr": 0.9785522342554617,
+        "total_time_mean": 33.144580602645874,
+        "total_time_stderr": 2.2157294750213623,
         "num_tokens_generated_mean": 483.0,
         "num_tokens_generated_stderr": 0.0
     },
@@ -21,16 +21,16 @@
                 "is_correct": false,
                 "prompt": "Write a python function to remove first and last occurrence of a given character from the string.",
                 "target": "def remove_Occ(s,ch): \r\n    for i in range(len(s)): \r\n        if (s[i] == ch): \r\n            s = s[0 : i] + s[i + 1:] \r\n            break\r\n    for i in range(len(s) - 1,-1,-1):  \r\n        if (s[i] == ch): \r\n            s = s[0 : i] + s[i + 1:] \r\n            break\r\n    return s ",
-                "generation": "def remove_Occ(string, char):\n         return string.replace(char, '',replace1)\n     ```",
-                "filtered": " def remove_Occ(string, char):\n         return string.replace(char, '',replace1)\n     ```"
+                "generation": "def remove_Occ(string, char):\n         return string.replace(char, \"\",",
+                "filtered": " def remove_Occ(string, char):\n         return string.replace(char, \"\", "
             },
             {
                 "metric": "pass_at_1",
                 "is_correct": false,
                 "prompt": "Write a function to sort a given matrix in ascending order according to the sum of its rows.",
                 "target": "def sort_matrix(M):\r\n    result = sorted(M, key=sum)\r\n    return result",
-                "generation": "def sort_matrix(matrix):\n         return sorted(matrix, key=lambda row: sum(row))\n     ```",
-                "filtered": " def sort_matrix(matrix):\n         return sorted(matrix, key=lambda row: sum(row))\n     ```"
+                "generation": "def sort_matrix(matrix):",
+                "filtered": " def sort_matrix(matrix):\n"
             }
         ]
     }
