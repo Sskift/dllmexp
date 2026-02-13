@@ -32,15 +32,36 @@ pip install -r requirements.txt
 ## 2. Quick Start
 
 ### Single Evaluation
-You can run a single evaluation job using `eval.py`.
+You can run a single evaluation job using `eval.py`. Here is an example showing all supported arguments:
 
 ```bash
 python eval.py \
+    # [Required] Model selection: dream, llada, llada1.5, diffucoder
     --model_alias llada \
+    # [Required] Task selection: humaneval, mbpp, gsm8k, truthfulqa
     --task humaneval \
+    # [Optional] Algorithm override (e.g., maskgit_plus, low_confidence, random)
     --alg low_confidence \
+    # [Optional] decoding parameters
     --tokens_per_step 1 \
-    --limit 10
+    --num_steps 128 \
+    --gen_length 512 \
+    --block_length 64 \
+    --temperature 0.0 \
+    --top_p 0.95 \
+    --max_new_tokens 512 \
+    --remasking low_confidence \
+    # [Optional] Job control
+    --limit 10 \
+    --output_dir results \
+    --tag debug_run \
+    --dtype bfloat16 \
+    --device cuda \
+    # [Optional] Model Checkpoint Overrides (defaults shown)
+    --dream_ckpt "Dream-org/Dream-v0-Instruct-7B" \
+    --llada_ckpt "GSAI-ML/LLaDA-8B-Instruct" \
+    --llada15_ckpt "GSAI-ML/LLaDA-1.5" \
+    --diffucoder_ckpt "apple/DiffuCoder-7B-cpGRPO"
 ```
 
 ### Batch Experiments

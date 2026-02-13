@@ -103,12 +103,12 @@ def _template_chat_code_mbpp(text: str) -> str:
 
 def _template_chat_reasoning(text: str) -> str:
     return f"""<|im_start|>system
-You are a careful reasoning assistant. Answer the question briefly and factually.<|im_end|>
-<|im_start|>user
-{text}
-<|im_end|>
-<|im_start|>assistant
-"""
+    You are a careful reasoning assistant. Answer the question briefly and factually.<|im_end|>
+    <|im_start|>user
+    {text}
+    <|im_end|>
+    <|im_start|>assistant
+    """
 
 
 def get_prompt_template(model_alias: str, task_name: str):
