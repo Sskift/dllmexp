@@ -182,6 +182,7 @@ class LladaEvalHarness(_ProfilingHarness):
                 num_steps=num_steps,
                 gen_length=gen_length,
                 block_length=self.block_length,
+                tokens_per_step=self.tokens_per_step,
                 temperature=max(self.temperature, 0.1),
                 cfg_scale=0.0,
                 remasking=self.alg if self.alg in {"low_confidence", "random"} else self.remasking,

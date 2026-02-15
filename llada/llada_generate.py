@@ -38,8 +38,18 @@ def get_num_transfer_tokens(mask_index, steps):
 
 
 @torch.no_grad()
-def llada_diffusion_generate(model, prompt, num_steps=128, gen_length=128, block_length=128, temperature=0.,
-             cfg_scale=0., remasking='low_confidence', mask_id=126336):
+def llada_diffusion_generate(
+    model,
+    prompt,
+    num_steps=128,
+    gen_length=128,
+    block_length=128,
+    tokens_per_step=None,
+    temperature=0.0,
+    cfg_scale=0.0,
+    remasking="low_confidence",
+    mask_id=126336,
+):
     '''
     Args:
         model: Mask predictor.
@@ -64,11 +74,14 @@ def llada_diffusion_generate(model, prompt, num_steps=128, gen_length=128, block
     steps = num_steps // num_blocks
 
     for num_block in range(num_blocks):
-        block_mask_index = (x[:, prompt.shape[1] + num_block * block_length: prompt.shape[1] + (num_block + 1) * block_length:] == mask_id)
-        num_transfer_tokens = get_num_transfer_tokens(block_mask_index, steps)
+        block_mask_index = (
+            x[:, prompt.shape[1] + num_block * block_length : prompt.shape[1] + (num_block + 1) * block_length] == mask_id
+        )
+        # If tokens_per_step is provided, use it directly (capped by remaining masks); otherwise keep uniform schedule
+        num_transfer_tokens = None if tokens_per_step is not None else get_num_transfer_tokens(block_mask_index, steps)
         for i in range(steps):
-            mask_index = (x == mask_id)
-            if cfg_scale > 0.:
+            mask_index = x == mask_id
+            if cfg_scale > 0.0:
                 un_x = x.clone()
                 un_x[prompt_index] = mask_id
                 x_ = torch.cat([x, un_x], dim=0)
@@ -79,25 +92,28 @@ def llada_diffusion_generate(model, prompt, num_steps=128, gen_length=128, block
                 logits = model(x).logits
 
             logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
-            x0 = torch.argmax(logits_with_noise, dim=-1) # b, l
+            x0 = torch.argmax(logits_with_noise, dim=-1)  # b, l
 
-            if remasking == 'low_confidence':
+            if remasking == "low_confidence":
                 p = F.softmax(logits.to(torch.float64), dim=-1)
-                x0_p = torch.squeeze(
-                    torch.gather(p, dim=-1, index=torch.unsqueeze(x0, -1)), -1) # b, l
-            elif remasking == 'random':
+                x0_p = torch.squeeze(torch.gather(p, dim=-1, index=torch.unsqueeze(x0, -1)), -1)  # b, l
+            elif remasking == "random":
                 x0_p = torch.rand((x0.shape[0], x0.shape[1]), device=x0.device)
             else:
                 raise NotImplementedError(remasking)
 
-            x0_p[:, prompt.shape[1] + (num_block + 1) * block_length:] = -np.inf
+            x0_p[:, prompt.shape[1] + (num_block + 1) * block_length :] = -np.inf
 
             x0 = torch.where(mask_index, x0, x)
             confidence = torch.where(mask_index, x0_p, -np.inf)
 
             transfer_index = torch.zeros_like(x0, dtype=torch.bool, device=x0.device)
             for j in range(confidence.shape[0]):
-                _, select_index = torch.topk(confidence[j], k=num_transfer_tokens[j, i])
+                remaining = (block_mask_index[j]).sum().item()
+                k = min(tokens_per_step if tokens_per_step is not None else num_transfer_tokens[j, i].item(), remaining)
+                if k <= 0:
+                    continue
+                _, select_index = torch.topk(confidence[j], k=k)
                 transfer_index[j, select_index] = True
             x[transfer_index] = x0[transfer_index]
 
