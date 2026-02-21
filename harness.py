@@ -3,13 +3,12 @@ import os
 import time
 import json
 from typing import Optional
-
 import numpy as np
 import torch
 from lm_eval.models.huggingface import HFLM
 from llada.llada_generate import llada_ar_generate, llada_diffusion_generate
-from diffucoder.generate import diffucoder_generate
 import logging
+from diffucoder import generation_utils as diffucoder_gen
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +169,7 @@ class LladaEvalHarness(_ProfilingHarness):
                 num_steps=num_steps,
                 gen_length=gen_length,
                 block_length=self.block_length,
-                temperature=max(self.temperature, 0.1),
+                temperature=self.temperature,
                 cfg_scale=0.0,
                 remasking=self.remasking,
                 tokens_per_step=self.tokens_per_step,
@@ -183,7 +182,7 @@ class LladaEvalHarness(_ProfilingHarness):
                 gen_length=gen_length,
                 block_length=self.block_length,
                 tokens_per_step=self.tokens_per_step,
-                temperature=max(self.temperature, 0.1),
+                temperature=self.temperature,
                 cfg_scale=0.0,
                 remasking=self.alg if self.alg in {"low_confidence", "random"} else self.remasking,
             )
@@ -226,13 +225,6 @@ class LladaEvalHarness(_ProfilingHarness):
 
         return gen_slice
 
-
-class Llada15EvalHarness(LladaEvalHarness):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.model_alias = "llada1.5"
-
-
 class DreamEvalHarness(_ProfilingHarness):
     def __init__(
         self,
@@ -267,15 +259,19 @@ class DreamEvalHarness(_ProfilingHarness):
         pad_token_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
         max_new_tokens = max_length - context.shape[1] if max_length is not None else self.max_new_tokens
         start = time.time()
-        outputs = diffucoder_generate(
+        # Use local diffucoder generation_utils to avoid relying on HF cache copy
+        outputs = diffucoder_gen.DreamGenerationMixin.diffusion_generate(
             self.model,
-            context,
+            inputs=context,
             attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            output_history=False,
+            return_dict_in_generate=True,
             steps=self.steps,
             temperature=self.temperature,
             top_p=self.top_p,
-            max_new_tokens=max_new_tokens,
             alg=self.alg,
+            alg_temp=0.0,
             tokens_per_step=self.tokens_per_step,
         )
         end = time.time()
@@ -284,95 +280,6 @@ class DreamEvalHarness(_ProfilingHarness):
         gen_slice = sequences[:, context.shape[1]:]
 
         # Clean diffusion output: strip masks, truncate at eos, and fallback if empty
-        eos_id = self.tokenizer.eos_token_id
-        mask_id = getattr(self.tokenizer, "mask_token_id", None)
-        if mask_id is None:
-            try:
-                mask_id = self.tokenizer.convert_tokens_to_ids("<|mask|>")
-            except Exception:
-                mask_id = None
-
-        if mask_id is not None:
-            gen_slice = gen_slice.masked_fill(gen_slice == mask_id, eos_id if eos_id is not None else pad_token_id)
-
-        if eos_id is not None:
-            for i in range(gen_slice.size(0)):
-                eos_positions = (gen_slice[i] == eos_id).nonzero(as_tuple=False)
-                if eos_positions.numel() > 0:
-                    first = eos_positions[0].item()
-                    gen_slice[i, first + 1 :] = eos_id
-
-        if eos_id is not None:
-            all_eos = (gen_slice == eos_id).all(dim=1)
-            if all_eos.any():
-                fallback_ids = self.tokenizer.encode("pass", add_special_tokens=False, return_tensors="pt").to(gen_slice.device)
-                fallback_ids = fallback_ids[:, : gen_slice.shape[1]]
-                for b, flag in enumerate(all_eos.tolist()):
-                    if flag:
-                        gen_slice[b, : fallback_ids.shape[1]] = fallback_ids[0]
-                        if fallback_ids.shape[1] < gen_slice.shape[1]:
-                            gen_slice[b, fallback_ids.shape[1] :] = eos_id
-
-        generated_tokens = gen_slice.shape[1]
-        self._log_profile(generated_tokens, end - start)
-
-        return gen_slice
-
-
-class DiffuCoderEvalHarness(_ProfilingHarness):
-    def __init__(
-        self,
-        pretrained,
-        tokenizer,
-        *,
-        steps: int,
-        temperature: float,
-        top_p: float,
-        alg: str,
-        max_new_tokens: int,
-        tokens_per_step: int | None = None,
-        prompt_template=None,
-    ) -> None:
-        super().__init__(pretrained=pretrained, tokenizer=tokenizer, prompt_template=prompt_template)
-        self.model_alias = "diffucoder"
-        self.steps = steps
-        self.temperature = temperature
-        self.top_p = top_p
-        self.alg = alg
-        self.max_new_tokens = max_new_tokens
-        self.tokens_per_step = tokens_per_step
-        self.is_code_task = False
-
-    @property
-    def max_gen_toks(self) -> int:
-        return self.max_new_tokens
-
-    def _model_generate(self, context, max_length, stop, **generation_kwargs):
-        # stop is intentionally ignored to avoid premature truncation from lm-eval stop sequences
-        context, attention_mask = self._prepare_context(context)
-        pad_token_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
-        max_new_tokens = max_length - context.shape[1] if max_length is not None else self.max_new_tokens
-        start = time.time()
-        outputs = self.model.diffusion_generate(
-            context,
-            attention_mask=attention_mask,
-            pad_token_id=pad_token_id,
-            steps=self.steps,
-            temperature=self.temperature,
-            top_p=self.top_p,
-            alg=self.alg,
-            alg_temp=0.0,
-            max_new_tokens=max_new_tokens,
-            tokens_per_step=self.tokens_per_step,
-            output_history=False,
-            return_dict_in_generate=True,
-        )
-        end = time.time()
-
-        sequences = outputs.sequences if hasattr(outputs, "sequences") else outputs
-        gen_slice = sequences[:, context.shape[1]:]
-
-        # Clean diffusion output: strip mask tokens, truncate at eos, and fallback if empty
         eos_id = self.tokenizer.eos_token_id
         mask_id = getattr(self.tokenizer, "mask_token_id", None)
         if mask_id is None:

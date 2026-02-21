@@ -4,12 +4,10 @@ import argparse
 import json
 import logging
 from copy import deepcopy
-
 import torch
 from transformers import AutoModel, AutoTokenizer
 from lm_eval import evaluator
-
-from harness import DiffuCoderEvalHarness, DreamEvalHarness, Llada15EvalHarness, LladaEvalHarness
+from harness import DreamEvalHarness, LladaEvalHarness
 from utils import parse_results
 from dream.modeling_dream import DreamModel
 
@@ -29,32 +27,32 @@ TASKS = {
 
 MODEL_DEFAULTS = {
     "dream": {
-        "truthfulqa": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "humaneval": {"steps": 512, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "mbpp": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "gsm8k": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "default": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "truthfulqa": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "humaneval": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "mbpp": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "gsm8k": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "default": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
     },
     "diffucoder": {
-        "truthfulqa": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 128, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "humaneval": {"steps": 512, "temperature": 0.0, "top_p": 0.9, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "mbpp": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "gsm8k": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
-        "default": {"steps": 512, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 512, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "truthfulqa": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "humaneval": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "mbpp": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "gsm8k": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
+        "default": {"steps": 256, "temperature": 0.0, "top_p": 0.95, "max_new_tokens": 256, "alg": "maskgit_plus", "tokens_per_step": 1},
     },
     "llada": {
-        "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
-        "humaneval": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 64, "temperature": 0.0, "remasking": "random", "tokens_per_step": 1},
-        "mbpp": {"alg": "low_confidence", "num_steps": 128, "gen_length": 256, "block_length": 64, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
-        "gsm8k": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
-        "default": {"alg": "low_confidence", "num_steps": 128, "gen_length": 512, "block_length": 64, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "truthfulqa": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "humaneval": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "random", "tokens_per_step": 1},
+        "mbpp": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "gsm8k": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "default": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
     },
     "llada1.5": {
-        "truthfulqa": {"alg": "low_confidence", "num_steps": 192, "gen_length": 128, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
-        "humaneval": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
-        "mbpp": {"alg": "low_confidence", "num_steps": 512, "gen_length": 512, "block_length": 16, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
-        "gsm8k": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
-        "default": {"alg": "low_confidence", "num_steps": 256, "gen_length": 512, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "truthfulqa": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "humaneval": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "mbpp": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "gsm8k": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
+        "default": {"alg": "low_confidence", "num_steps": 256, "gen_length": 256, "block_length": 32, "temperature": 0.0, "remasking": "low_confidence", "tokens_per_step": 1},
     },
 }
 
@@ -199,7 +197,7 @@ def get_model(args):
             model = model.to(args.device)
         model = model.eval()
         tokenizer = AutoTokenizer.from_pretrained(args.diffucoder_ckpt, trust_remote_code=True)
-        harness = DiffuCoderEvalHarness(
+        harness = DreamEvalHarness(
             pretrained=model,
             tokenizer=tokenizer,
             steps=cfg["steps"],
@@ -210,6 +208,7 @@ def get_model(args):
             tokens_per_step=cfg.get("tokens_per_step"),
             prompt_template=prompt_template,
         )
+        harness.model_alias = "diffucoder"
         harness.is_code_task = task_name in {"humaneval", "mbpp"}
         return harness
 
@@ -270,7 +269,7 @@ def get_model(args):
             llada = llada.to(args.device)
         llada = llada.eval()
         tokenizer = AutoTokenizer.from_pretrained(args.llada15_ckpt, trust_remote_code=True)
-        harness = Llada15EvalHarness(
+        harness = LladaEvalHarness(
             pretrained=llada,
             tokenizer=tokenizer,
             alg=cfg["alg"],
@@ -282,6 +281,7 @@ def get_model(args):
             tokens_per_step=cfg.get("tokens_per_step", 1),
             prompt_template=prompt_template,
         )
+        harness.model_alias = "llada1.5"
         harness.is_code_task = task_name in {"humaneval", "mbpp"}
         return harness
 
