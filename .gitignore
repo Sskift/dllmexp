@@ -20,4 +20,4 @@ results/
 exp_logs/
 exp_state/
 */__pycache__/
-scripts/exp.sh
+scripts/

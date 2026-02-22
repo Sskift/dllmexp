@@ -8,7 +8,6 @@ import torch
 from lm_eval.models.huggingface import HFLM
 from llada.llada_generate import llada_ar_generate, llada_diffusion_generate
 import logging
-from diffucoder import generation_utils as diffucoder_gen
 
 logger = logging.getLogger(__name__)
 
@@ -259,10 +258,8 @@ class DreamEvalHarness(_ProfilingHarness):
         pad_token_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
         max_new_tokens = max_length - context.shape[1] if max_length is not None else self.max_new_tokens
         start = time.time()
-        # Use local diffucoder generation_utils to avoid relying on HF cache copy
-        outputs = diffucoder_gen.DreamGenerationMixin.diffusion_generate(
-            self.model,
-            inputs=context,
+        outputs = self.model.diffusion_generate(
+            context,
             attention_mask=attention_mask,
             max_new_tokens=max_new_tokens,
             output_history=False,

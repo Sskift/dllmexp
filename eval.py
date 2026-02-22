@@ -8,6 +8,8 @@ import torch
 from transformers import AutoModel, AutoTokenizer
 from lm_eval import evaluator
 from harness import DreamEvalHarness, LladaEvalHarness
+from eval_config.monkey_patch import apply_custom_task_configs
+from dream import generation_utils as dream_gen
 from utils import parse_results
 from dream.modeling_dream import DreamModel
 
@@ -197,6 +199,41 @@ def get_model(args):
             model = model.to(args.device)
         model = model.eval()
         tokenizer = AutoTokenizer.from_pretrained(args.diffucoder_ckpt, trust_remote_code=True)
+
+        # Patch DiffuCoder generation to use Dream's generation mixin (tokens_per_step, sane max_length)
+        def _bind(obj, fn):
+            return fn.__get__(obj, obj.__class__)
+
+        # Bind core mixin methods
+        for name in [
+            "_prepare_generation_config",
+            "_prepare_special_tokens",
+            "_prepare_generated_length",
+            "_validate_generated_length",
+        ]:
+            if hasattr(dream_gen.DreamGenerationMixin, name):
+                setattr(model, name, _bind(model, getattr(dream_gen.DreamGenerationMixin, name)))
+
+        model.generation_config = dream_gen.DreamGenerationConfig.from_model_config(model.config)
+        model._diffusion_generate_patched = _bind(model, dream_gen.DreamGenerationMixin.diffusion_generate)
+
+        def _dream_diffusion_generate(self, inputs=None, attention_mask=None, **kwargs):
+            cfg = dream_gen.DreamGenerationConfig.from_model_config(self.config)
+            for key, val in kwargs.items():
+                if hasattr(cfg, key) and val is not None:
+                    setattr(cfg, key, val)
+            if cfg.max_new_tokens is not None:
+                cfg.max_length = (inputs.shape[1] if inputs is not None else 0) + cfg.max_new_tokens
+            cfg.return_dict_in_generate = True
+            cfg.output_history = False
+            return self._diffusion_generate_patched(
+                inputs=inputs,
+                attention_mask=attention_mask,
+                generation_config=cfg,
+            )
+
+        model.diffusion_generate = _dream_diffusion_generate.__get__(model, model.__class__)
+
         harness = DreamEvalHarness(
             pretrained=model,
             tokenizer=tokenizer,
@@ -312,6 +349,9 @@ def main():
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu", "auto"], help="Device to place model on (use auto for hf accelerate device_map)")
 
     args = parser.parse_args()
+
+    # Apply custom task YAML overrides (hendrycks_math, gpqa, etc.) if present
+    apply_custom_task_configs()
 
     model = get_model(args)
 

@@ -18,6 +18,45 @@ def _extract_last_number(text: str):
     return matches[-1] if matches else None
 
 
+def _strip_prefix(text: str | None, prefix: str | None) -> str | None:
+    if not text or not prefix:
+        return text
+    if text.startswith(prefix):
+        return text[len(prefix):].lstrip()
+    return text
+
+
+def _normalize_resp(resp, prompt_text: str | None) -> str | None:
+    """Normalize a response or filtered response to a plain string without the prompt prefix."""
+    if resp is None:
+        return None
+    # If list/tuple, join and recurse
+    if isinstance(resp, (list, tuple)):
+        joined = " ".join(str(x) for x in resp)
+        return _normalize_resp(joined, prompt_text)
+    if not isinstance(resp, str):
+        resp = str(resp)
+    s = resp.strip()
+    # If it is a repr of a single-element list like "['...']", unwrap it
+    if s.startswith("['") and s.endswith("']"):
+        s = s[2:-2].strip()
+    # Remove one leading occurrence of the prompt
+    s = _strip_prefix(s, prompt_text) or s
+    return s
+
+
+def _strip_suffix_tokens(text: str | None) -> str | None:
+    """Strip common special-token suffixes such as <|im_end|>, <|eot_id|>, <|."""
+    if text is None:
+        return None
+    suffixes = ["<|im_end|>", "<|im_end", "<|eot_id|>", "<|eot_id", "<|", "</s>"]
+    trimmed = text
+    for suf in suffixes:
+        if suf in trimmed:
+            trimmed = trimmed.split(suf, 1)[0]
+    return trimmed.rstrip()
+
+
 def parse_results(results, task_name):
     metric_filter = {
         "truthfulqa_gen": {"bleu_max,none", "rouge1_max,none", "rouge2_max,none", "rougeL_max,none"},
@@ -45,14 +84,13 @@ def parse_results(results, task_name):
                 metric_key = sample.get("metrics", [None])[0] if sample.get("metrics") else None
                 metric_value = sample.get(metric_key) if metric_key else None
                 doc = sample.get("doc", {}) or {}
-                generation = None
-                if sample.get("resps"):
-                    generation = sample["resps"][0][0]
-                    if not isinstance(generation, str):
-                        generation = str(generation)
-                filtered = sample.get("filtered_resps", [None])[0]
-                if filtered is not None and not isinstance(filtered, str):
-                    filtered = str(filtered)
+                generation_raw = sample.get("resps", [None])[0]
+                generation = _normalize_resp(generation_raw[0] if isinstance(generation_raw, (list, tuple)) else generation_raw, None)
+                filtered_raw = sample.get("filtered_resps", [None])[0]
+
+                prompt_text = doc.get("question") or doc.get("prompt") or doc.get("text") or doc.get("query") or doc.get("instruction") or doc.get("task_id")
+                generation = _strip_suffix_tokens(_normalize_resp(generation, prompt_text))
+                filtered = _strip_suffix_tokens(_normalize_resp(filtered_raw, prompt_text))
 
                 # Fallback numeric extraction for GSM8K when post-processor yields [invalid]
                 if task_name == "gsm8k" and (filtered in {None, "[invalid]", ""}):
@@ -64,12 +102,7 @@ def parse_results(results, task_name):
                     {
                         "metric": metric_key,
                         "is_correct": bool(metric_value) if metric_value is not None else None,
-                        "prompt": doc.get("question")
-                        or doc.get("prompt")
-                        or doc.get("text")
-                        or doc.get("query")
-                        or doc.get("instruction")
-                        or doc.get("task_id"),
+                        "prompt": prompt_text,
                         "target": doc.get("best_answer")
                         or doc.get("correct_answers")
                         or doc.get("answer")
