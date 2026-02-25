@@ -62,7 +62,7 @@ MODEL_DEFAULTS = {
 ALLOWED_ALGS = {
     "dream": {"maskgit_plus"},
     "diffucoder": {"maskgit_plus"},
-    "llada": {"low_confidence", "random", "leftright"},
+    "llada": {"low_confidence", "random", "leftright","ddola","sdola"},
     "llada1.5": {"low_confidence", "random", "leftright"},
 }
 
@@ -258,6 +258,7 @@ def get_model(args):
             "remasking": args.remasking,
             "tokens_per_step": args.tokens_per_step,
             "alg": args.alg,
+            "cfg_scale": args.cfg_scale,
         }
         cfg = _merge_generation_config("llada", task_name, overrides)
         llada = AutoModel.from_pretrained(
@@ -280,6 +281,7 @@ def get_model(args):
             temperature=cfg["temperature"],
             remasking=cfg["remasking"],
             tokens_per_step=cfg.get("tokens_per_step", 1),
+            cfg_scale=cfg.get("cfg_scale", 0.0),
             prompt_template=prompt_template,
         )
         harness.is_code_task = task_name in {"humaneval", "mbpp"}
@@ -294,6 +296,7 @@ def get_model(args):
             "remasking": args.remasking,
             "tokens_per_step": args.tokens_per_step,
             "alg": args.alg,
+            "cfg_scale": args.cfg_scale,
         }
         cfg = _merge_generation_config("llada1.5", task_name, overrides)
         llada = AutoModel.from_pretrained(
@@ -316,6 +319,7 @@ def get_model(args):
             temperature=cfg["temperature"],
             remasking=cfg["remasking"],
             tokens_per_step=cfg.get("tokens_per_step", 1),
+            cfg_scale=cfg.get("cfg_scale", 0.0),
             prompt_template=prompt_template,
         )
         harness.model_alias = "llada1.5"
@@ -339,6 +343,7 @@ def main():
     parser.add_argument("--temperature", type=float, default=None, help="Sampling temperature override")
     parser.add_argument("--top_p", type=float, default=None, help="Top-p override")
     parser.add_argument("--max_new_tokens", type=int, default=None, help="Maximum generated tokens override")
+    parser.add_argument("--cfg_scale", type=float, default=None, help="Classifier-free guidance scale for LLaDA")
     parser.add_argument("--remasking", type=str, default=None, help="Remasking strategy for LLaDA diffusion decoding")
     parser.add_argument("--dream_ckpt", type=str, default="Dream-org/Dream-v0-Instruct-7B", help="Dream checkpoint")
     parser.add_argument("--llada_ckpt", type=str, default="GSAI-ML/LLaDA-8B-Instruct", help="LLaDA checkpoint")
@@ -362,6 +367,10 @@ def main():
     task_label = args.task
     if args.alg:
         task_label += f"_{args.alg}"
+    if args.cfg_scale is not None:
+        task_label += f"_cfg{args.cfg_scale}"
+    if args.limit is not None:
+        task_label += f"_limit{args.limit}"
     if args.num_steps is not None:
         task_label += f"_steps={args.num_steps}"
     if args.max_new_tokens is not None:
@@ -371,7 +380,7 @@ def main():
     if args.tag:
         task_label += f"_{args.tag}"
 
-    output_filename = f"{args.model_alias}_{task_label}_limit{args.limit}.json"
+    output_filename = f"{args.model_alias}_{task_label}.json"
     output_path = os.path.join(output_dir, output_filename)
     logger.info(f"Results will be written to {output_path}")
 

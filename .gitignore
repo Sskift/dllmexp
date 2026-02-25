@@ -19,5 +19,8 @@ build/
 results/
 exp_logs/
 exp_state/
-*/__pycache__/
+dolaexp_logs/
+dolaexp_states/
 scripts/
+llada/__pycache__/
+

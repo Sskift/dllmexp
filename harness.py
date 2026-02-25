@@ -6,7 +6,7 @@ from typing import Optional
 import numpy as np
 import torch
 from lm_eval.models.huggingface import HFLM
-from llada.llada_generate import llada_ar_generate, llada_diffusion_generate
+from llada.llada_generate import llada_ar_generate, llada_diffusion_generate, llada_ddola_diffusion_generate, llada_sdola_diffusion_generate
 import logging
 
 logger = logging.getLogger(__name__)
@@ -132,6 +132,7 @@ class LladaEvalHarness(_ProfilingHarness):
         temperature: float,
         remasking: str,
         tokens_per_step: Optional[int] = None,
+        cfg_scale: Optional[float] = 0.0,
         prompt_template=None,
     ) -> None:
         super().__init__(pretrained=pretrained, tokenizer=tokenizer, prompt_template=prompt_template)
@@ -143,6 +144,7 @@ class LladaEvalHarness(_ProfilingHarness):
         self.temperature = temperature
         self.remasking = remasking
         self.tokens_per_step = tokens_per_step or 1
+        self.cfg_scale = cfg_scale
         self.is_code_task = False  # set by caller if needed
 
     @property
@@ -173,7 +175,7 @@ class LladaEvalHarness(_ProfilingHarness):
                 remasking=self.remasking,
                 tokens_per_step=self.tokens_per_step,
             )
-        else:
+        elif self.alg == "low_confidence" or self.alg == "random":
             outputs = llada_diffusion_generate(
                 self.model,
                 context,
@@ -182,8 +184,36 @@ class LladaEvalHarness(_ProfilingHarness):
                 block_length=self.block_length,
                 tokens_per_step=self.tokens_per_step,
                 temperature=self.temperature,
-                cfg_scale=0.0,
+                cfg_scale=self.cfg_scale if hasattr(self, 'cfg_scale') else 0.0,
                 remasking=self.alg if self.alg in {"low_confidence", "random"} else self.remasking,
+            )
+        elif self.alg == "ddola":
+            outputs = llada_ddola_diffusion_generate(
+                self.model,
+                context,
+                num_steps=num_steps,
+                gen_length=gen_length,
+                block_length=self.block_length,
+                tokens_per_step=self.tokens_per_step,
+                temperature=self.temperature,
+                mature_layer=None,
+                candidate_premature_layers=None,
+                relative_top=0.1,
+                relative_top_value=-1000.0,
+            )
+        elif self.alg == "sdola":
+            outputs = llada_sdola_diffusion_generate(
+                self.model,
+                context,
+                num_steps=num_steps,
+                gen_length=gen_length,
+                block_length=self.block_length,
+                tokens_per_step=self.tokens_per_step,
+                temperature=self.temperature,
+                mature_layer=None,
+                premature_layer=None,
+                relative_top=0.1,
+                relative_top_value=-1000.0,
             )
 
         end = time.time()
